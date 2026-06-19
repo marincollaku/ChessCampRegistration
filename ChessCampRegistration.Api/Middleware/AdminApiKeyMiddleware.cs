@@ -4,6 +4,12 @@ public class AdminApiKeyMiddleware(RequestDelegate next, IConfiguration configur
 {
     public async Task InvokeAsync(HttpContext context)
     {
+        if (HttpMethods.IsOptions(context.Request.Method))
+        {
+            await next(context);
+            return;
+        }
+
         if (!context.Request.Path.StartsWithSegments("/api/admin"))
         {
             await next(context);

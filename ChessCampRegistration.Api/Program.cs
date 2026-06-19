@@ -22,7 +22,9 @@ if (corsOrigins is null || corsOrigins.Length == 0)
     var corsOrigin = builder.Configuration["CORS_ORIGIN"];
     corsOrigins = string.IsNullOrWhiteSpace(corsOrigin)
         ? ["http://localhost:5173"]
-        : [corsOrigin];
+        : corsOrigin.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(o => o.TrimEnd('/'))
+            .ToArray();
 }
 
 builder.Services.AddCors(options =>

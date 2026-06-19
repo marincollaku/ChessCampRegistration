@@ -31,7 +31,7 @@ services:
       - key: Email__FromName
         value: Regjistrimi në Kampin e Shahut
       - key: CORS_ORIGIN
-        sync: false
+        value: https://chess-camp-web.onrender.com
 
   - type: web
     name: chess-camp-web
