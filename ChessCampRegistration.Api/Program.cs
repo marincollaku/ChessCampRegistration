@@ -6,8 +6,11 @@ using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-builder.WebHost.UseUrls($"http://+:{port}");
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(port))
+{
+    builder.WebHost.UseUrls($"http://+:{port}");
+}
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -123,6 +126,14 @@ static bool IsOriginAllowed(string origin, IEnumerable<string> allowedOrigins, b
 
     var normalized = NormalizeOrigin(origin);
     if (allowedOrigins.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    if (!isProduction &&
+        Uri.TryCreate(normalized, UriKind.Absolute, out var localUri) &&
+        (localUri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+         localUri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)))
     {
         return true;
     }
