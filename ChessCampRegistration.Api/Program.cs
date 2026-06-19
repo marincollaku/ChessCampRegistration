@@ -16,34 +16,50 @@ var connectionString = ResolveConnectionString(builder.Configuration);
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddScoped<IEmailService, EmailService>();
 
-var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
-if (corsOrigins is null || corsOrigins.Length == 0)
-{
-    var corsOrigin = builder.Configuration["CORS_ORIGIN"];
-    corsOrigins = string.IsNullOrWhiteSpace(corsOrigin)
-        ? ["http://localhost:5173"]
-        : corsOrigin.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(o => o.TrimEnd('/'))
-            .ToArray();
-}
+var allowedOrigins = ResolveAllowedOrigins(builder.Configuration, builder.Environment.IsProduction());
 
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
-        policy.WithOrigins(corsOrigins)
+        policy.SetIsOriginAllowed(origin => IsOriginAllowed(origin, allowedOrigins, builder.Environment.IsProduction()))
               .AllowAnyHeader()
               .AllowAnyMethod());
 });
 
 var app = builder.Build();
 
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+logger.LogInformation("CORS allowed origins: {Origins}", string.Join(", ", allowedOrigins));
+
+app.Use(async (context, next) =>
+{
+    var origin = context.Request.Headers.Origin.ToString();
+
+    if (!string.IsNullOrWhiteSpace(origin) &&
+        IsOriginAllowed(origin, allowedOrigins, app.Environment.IsProduction()))
+    {
+        context.Response.Headers["Access-Control-Allow-Origin"] = origin;
+        context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, X-Admin-Key, Authorization";
+        context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+        context.Response.Headers["Access-Control-Max-Age"] = "86400";
+
+        if (HttpMethods.IsOptions(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status204NoContent;
+            return;
+        }
+    }
+
+    await next();
+});
+
+app.UseRouting();
 app.UseCors();
 app.UseMiddleware<AdminApiKeyMiddleware>();
 app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapControllers();
 
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
 app.Lifetime.ApplicationStarted.Register(() =>
 {
     _ = Task.Run(async () =>
@@ -63,6 +79,65 @@ app.Lifetime.ApplicationStarted.Register(() =>
 });
 
 app.Run();
+
+static string[] ResolveAllowedOrigins(IConfiguration configuration, bool isProduction)
+{
+    var origins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    var fromConfig = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+    if (fromConfig is not null)
+    {
+        foreach (var origin in fromConfig)
+        {
+            origins.Add(NormalizeOrigin(origin));
+        }
+    }
+
+    var corsOrigin = configuration["CORS_ORIGIN"]
+        ?? Environment.GetEnvironmentVariable("CORS_ORIGIN");
+
+    if (!string.IsNullOrWhiteSpace(corsOrigin))
+    {
+        foreach (var origin in corsOrigin.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            origins.Add(NormalizeOrigin(origin));
+        }
+    }
+
+    origins.Add(NormalizeOrigin("http://localhost:5173"));
+
+    if (isProduction)
+    {
+        origins.Add(NormalizeOrigin("https://chess-camp-web.onrender.com"));
+    }
+
+    return origins.ToArray();
+}
+
+static bool IsOriginAllowed(string origin, IEnumerable<string> allowedOrigins, bool isProduction)
+{
+    if (string.IsNullOrWhiteSpace(origin))
+    {
+        return false;
+    }
+
+    var normalized = NormalizeOrigin(origin);
+    if (allowedOrigins.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    if (isProduction &&
+        Uri.TryCreate(normalized, UriKind.Absolute, out var uri) &&
+        uri.Host.EndsWith(".onrender.com", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+static string NormalizeOrigin(string origin) => origin.Trim().TrimEnd('/');
 
 static string ResolveConnectionString(IConfiguration configuration)
 {
