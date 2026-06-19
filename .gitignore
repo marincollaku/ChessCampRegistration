@@ -1,0 +1,17 @@
+# Secrets and local overrides
+**/appsettings.Development.json
+**/appsettings.Local.json
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.vs/
+.vscode/

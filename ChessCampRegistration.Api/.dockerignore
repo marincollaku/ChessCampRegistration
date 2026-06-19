@@ -1,0 +1,17 @@
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+**/appsettings.Development.json
+**/appsettings.Local.json
+.env
+.env.*
+!.env.production.example
+
+node_modules/
+dist/
+
+Dockerfile.*
+!ChessCampRegistration.Api/Dockerfile

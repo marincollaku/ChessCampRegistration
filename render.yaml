@@ -1,0 +1,43 @@
+# Deployment blueprint for Render (free tier)
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: chess-camp-api
+    runtime: docker
+    plan: free
+    rootDir: ChessCampRegistration.Api
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: DATABASE_URL
+        sync: false
+      - key: Admin__ApiKey
+        sync: false
+      - key: Email__SmtpHost
+        value: smtp.gmail.com
+      - key: Email__SmtpPort
+        value: "587"
+      - key: Email__SmtpUser
+        sync: false
+      - key: Email__SmtpPassword
+        sync: false
+      - key: Email__FromAddress
+        sync: false
+      - key: Email__FromName
+        value: Regjistrimi në Kampin e Shahut
+      - key: CORS_ORIGIN
+        sync: false
+
+  - type: web
+    name: chess-camp-web
+    runtime: static
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    rootDir: client
+    envVars:
+      - key: VITE_API_URL
+        sync: false
