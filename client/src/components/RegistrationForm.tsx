@@ -37,7 +37,11 @@ export function RegistrationForm({
     try {
       await onSubmit(form);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Diçka shkoi keq.');
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        setError('Kërkesa zgjati shumë. Provoni përsëri — regjistrimi mund të jetë ruajtur.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Diçka shkoi keq.');
+      }
     } finally {
       setSubmitting(false);
     }

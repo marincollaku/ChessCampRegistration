@@ -59,6 +59,7 @@ export async function submitRegistration(data: RegistrationFormData): Promise<Re
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toPayload(data)),
+    signal: AbortSignal.timeout(30_000),
   });
 
   return handleResponse<Registration>(response);

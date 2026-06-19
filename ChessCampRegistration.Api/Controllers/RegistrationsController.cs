@@ -10,7 +10,10 @@ namespace ChessCampRegistration.Api.Controllers;
 
 [ApiController]
 [Route("api")]
-public class RegistrationsController(AppDbContext db, IEmailService emailService, ILogger<RegistrationsController> logger) : ControllerBase
+public class RegistrationsController(
+    AppDbContext db,
+    IServiceScopeFactory scopeFactory,
+    ILogger<RegistrationsController> logger) : ControllerBase
 {
     [HttpPost("registrations")]
     public async Task<ActionResult<RegistrationResponse>> Create(
@@ -31,14 +34,7 @@ public class RegistrationsController(AppDbContext db, IEmailService emailService
         db.Registrations.Add(registration);
         await db.SaveChangesAsync(cancellationToken);
 
-        try
-        {
-            await emailService.SendRegistrationConfirmationAsync(registration, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Email send failed for registration {RegistrationId}.", registration.Id);
-        }
+        QueueConfirmationEmail(registration);
 
         return CreatedAtAction(nameof(GetById), new { id = registration.Id }, ToResponse(registration));
     }
@@ -197,6 +193,37 @@ public class RegistrationsController(AppDbContext db, IEmailService emailService
     {
         var escaped = value.Replace("\"", "\"\"");
         return $"\"{escaped}\"";
+    }
+
+    private void QueueConfirmationEmail(Registration registration)
+    {
+        var emailRegistration = new Registration
+        {
+            Id = registration.Id,
+            KidFullName = registration.KidFullName,
+            KidAge = registration.KidAge,
+            KidSchool = registration.KidSchool,
+            KidChessLevel = registration.KidChessLevel,
+            ParentName = registration.ParentName,
+            ParentPhone = registration.ParentPhone,
+            ParentEmail = registration.ParentEmail,
+            CreatedAt = registration.CreatedAt
+        };
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                using var emailTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                await emailService.SendRegistrationConfirmationAsync(emailRegistration, emailTimeout.Token);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Email send failed for registration {RegistrationId}.", registration.Id);
+            }
+        });
     }
 
     private static RegistrationResponse ToResponse(Registration registration) =>
