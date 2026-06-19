@@ -1,11 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY ChessCampRegistration.Api.csproj ./
-RUN dotnet restore
+COPY ["ChessCampRegistration.Api.csproj", "./"]
+RUN dotnet restore "ChessCampRegistration.Api.csproj"
 
-COPY . ./
-RUN dotnet publish -c Release -o /app/publish
+COPY . .
+RUN dotnet publish "ChessCampRegistration.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
