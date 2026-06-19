@@ -1,6 +1,7 @@
 # Secrets and local overrides
 **/appsettings.Development.json
 **/appsettings.Local.json
+RENDER_SETUP.md
 
 # .NET
 bin/
