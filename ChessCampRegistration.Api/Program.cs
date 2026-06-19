@@ -74,13 +74,43 @@ static string ResolveConnectionString(IConfiguration configuration)
             "Database connection is not configured. Set DATABASE_URL or ConnectionStrings:DefaultConnection.");
     }
 
+    connectionString = connectionString.Trim();
+
     if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
         connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
     {
-        return new NpgsqlConnectionStringBuilder
+        connectionString = FixTruncatedSslMode(connectionString);
+        var uri = new Uri(connectionString);
+        var userInfo = uri.UserInfo.Split(':', 2);
+
+        var builder = new NpgsqlConnectionStringBuilder
         {
-            ConnectionString = connectionString
-        }.ConnectionString;
+            Host = uri.Host,
+            Port = uri.Port > 0 ? uri.Port : 5432,
+            Database = uri.AbsolutePath.TrimStart('/'),
+            Username = Uri.UnescapeDataString(userInfo[0]),
+            Password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty,
+            SslMode = SslMode.Require
+        };
+
+        return builder.ConnectionString;
+    }
+
+    return connectionString;
+}
+
+static string FixTruncatedSslMode(string connectionString)
+{
+    if (connectionString.EndsWith("?sslmode", StringComparison.OrdinalIgnoreCase))
+    {
+        return connectionString + "=require";
+    }
+
+    if (!connectionString.Contains("sslmode=", StringComparison.OrdinalIgnoreCase))
+    {
+        return connectionString.Contains('?')
+            ? connectionString + "&sslmode=require"
+            : connectionString + "?sslmode=require";
     }
 
     return connectionString;
