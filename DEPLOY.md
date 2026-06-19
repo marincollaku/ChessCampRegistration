@@ -48,9 +48,10 @@ git push -u origin main
 |-----|-------|
 | `DATABASE_URL` | Connection string nga Neon |
 | `Admin__ApiKey` | Çelësi i fortë për admin (p.sh. `kampi-shahut-2026-secret`) |
-| `Email__SmtpUser` | `marincollaku@gmail.com` |
-| `Email__SmtpPassword` | App password Gmail |
-| `Email__FromAddress` | `marincollaku@gmail.com` |
+| `Email__SendGridApiKey` | API key nga [SendGrid](https://sendgrid.com) (100 email/ditë falas) |
+| `Email__FromAddress` | Email i verifikuar në SendGrid (p.sh. `marincollaku@gmail.com`) |
+
+> **Pse jo Gmail SMTP?** Render free tier bllokon portet SMTP (25, 465, 587). Gmail funksionon vetëm lokalisht. Për production përdorni SendGrid API (HTTPS).
 | `CORS_ORIGIN` | URL e frontend-it (vendoset pas Hapi 4) |
 
 ### Variablat e mjedisit (Web: `chess-camp-web`)
@@ -60,6 +61,27 @@ git push -u origin main
 | `VITE_API_URL` | URL e API-së, p.sh. `https://chess-camp-api.onrender.com` |
 
 5. Deploy — API dhe frontend nisen automatikisht
+
+---
+
+## Hapi 4b — SendGrid (email në production)
+
+Render **free tier bllokon Gmail SMTP**. Përdorni SendGrid (100 email/ditë falas, HTTPS):
+
+1. Krijoni llogari në [sendgrid.com](https://sendgrid.com)
+2. **Settings → API Keys → Create API Key** (Full Access ose Restricted → Mail Send)
+3. **Settings → Sender Authentication → Verify a Single Sender**
+   - Vendosni `marincollaku@gmail.com` dhe konfirmoni email-in
+4. Në Render → **chess-camp-api** → **Environment**, shtoni:
+
+```
+Email__SendGridApiKey=SG.xxxxxxxxxxxxx
+Email__FromAddress=marincollaku@gmail.com
+```
+
+5. Ruani dhe prisni ri-deploy
+
+Lokalish vazhdon të funksionojë Gmail SMTP (pa SendGrid key).
 
 ---
 
@@ -89,7 +111,7 @@ Ruani dhe prisni ri-deploy.
 
 - **Render API** fle pas ~15 min pa aktivitet (ngarkim i parë i ngadaltë)
 - **Neon** ka limit ruajtjeje/trafiku
-- **Gmail SMTP** funksionon normalisht
+- **Gmail SMTP nuk funksionon** në Render free — përdorni SendGrid API
 
 ---
 

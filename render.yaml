@@ -16,13 +16,7 @@ services:
         sync: false
       - key: Admin__ApiKey
         sync: false
-      - key: Email__SmtpHost
-        value: smtp.gmail.com
-      - key: Email__SmtpPort
-        value: "587"
-      - key: Email__SmtpUser
-        sync: false
-      - key: Email__SmtpPassword
+      - key: Email__SendGridApiKey
         sync: false
       - key: Email__FromAddress
         sync: false

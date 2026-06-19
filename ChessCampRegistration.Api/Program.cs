@@ -17,6 +17,7 @@ builder.Services.AddOpenApi();
 
 var connectionString = ResolveConnectionString(builder.Configuration);
 builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddHttpClient("SendGrid", client => client.Timeout = TimeSpan.FromSeconds(20));
 builder.Services.AddScoped<IEmailService, EmailService>();
 
 var allowedOrigins = ResolveAllowedOrigins(builder.Configuration, builder.Environment.IsProduction());

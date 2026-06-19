@@ -1,3 +1,6 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 using ChessCampRegistration.Api.Models;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -5,20 +8,17 @@ using MimeKit;
 
 namespace ChessCampRegistration.Api.Services;
 
-public class EmailService(IConfiguration configuration, ILogger<EmailService> logger) : IEmailService
+public class EmailService(
+    IConfiguration configuration,
+    IHttpClientFactory httpClientFactory,
+    ILogger<EmailService> logger) : IEmailService
 {
     public async Task SendRegistrationConfirmationAsync(Registration registration, CancellationToken cancellationToken = default)
     {
-        var smtpHost = configuration["Email:SmtpHost"];
-        var smtpPort = configuration.GetValue("Email:SmtpPort", 587);
-        var smtpUser = configuration["Email:SmtpUser"];
-        var smtpPassword = configuration["Email:SmtpPassword"];
-        var fromAddress = configuration["Email:FromAddress"] ?? smtpUser;
+        var fromAddress = configuration["Email:FromAddress"] ?? configuration["Email:SmtpUser"];
         var fromName = configuration["Email:FromName"] ?? "Kampi i Shahut";
 
-        if (string.IsNullOrWhiteSpace(smtpHost) ||
-            string.IsNullOrWhiteSpace(fromAddress) ||
-            string.IsNullOrWhiteSpace(smtpPassword))
+        if (string.IsNullOrWhiteSpace(fromAddress))
         {
             logger.LogWarning("Email not configured. Skipping confirmation email for registration {Id}.", registration.Id);
             return;
@@ -30,36 +30,128 @@ public class EmailService(IConfiguration configuration, ILogger<EmailService> lo
             return;
         }
 
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(fromName, fromAddress));
-        message.To.Add(recipient);
-        message.Subject = $"♟ {registration.KidFullName} është regjistruar — Kampi i Shahut!";
-
+        var subject = $"♟ {registration.KidFullName} është regjistruar — Kampi i Shahut!";
         var plainBody = BuildPlainBody(registration);
         var htmlBody = BuildHtmlBody(registration);
 
-        var bodyBuilder = new BodyBuilder
+        var sendGridApiKey = configuration["Email:SendGridApiKey"];
+        if (!string.IsNullOrWhiteSpace(sendGridApiKey))
         {
-            TextBody = plainBody,
-            HtmlBody = htmlBody
-        };
-        message.Body = bodyBuilder.ToMessageBody();
-
-        using var client = new SmtpClient
-        {
-            Timeout = 15_000
-        };
-        await client.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.StartTls, cancellationToken);
-
-        if (!string.IsNullOrWhiteSpace(smtpUser) && !string.IsNullOrWhiteSpace(smtpPassword))
-        {
-            await client.AuthenticateAsync(smtpUser, smtpPassword, cancellationToken);
+            await SendViaSendGridAsync(
+                recipient.Address,
+                fromAddress,
+                fromName,
+                subject,
+                plainBody,
+                htmlBody,
+                sendGridApiKey,
+                cancellationToken);
+            logger.LogInformation("Confirmation email sent via SendGrid to {Email} for registration {Id}.", registration.ParentEmail, registration.Id);
+            return;
         }
 
-        await client.SendAsync(message, cancellationToken);
-        await client.DisconnectAsync(true, cancellationToken);
+        await SendViaSmtpAsync(
+            recipient,
+            fromAddress,
+            fromName,
+            subject,
+            plainBody,
+            htmlBody,
+            cancellationToken);
+        logger.LogInformation("Confirmation email sent via SMTP to {Email} for registration {Id}.", registration.ParentEmail, registration.Id);
+    }
 
-        logger.LogInformation("Confirmation email sent to {Email} for registration {Id}.", registration.ParentEmail, registration.Id);
+    private async Task SendViaSendGridAsync(
+        string toAddress,
+        string fromAddress,
+        string fromName,
+        string subject,
+        string plainBody,
+        string htmlBody,
+        string apiKey,
+        CancellationToken cancellationToken)
+    {
+        var client = httpClientFactory.CreateClient("SendGrid");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.sendgrid.com/v3/mail/send");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        request.Content = JsonContent.Create(new SendGridMailRequest
+        {
+            Personalizations =
+            [
+                new SendGridPersonalization
+                {
+                    To = [new SendGridEmailAddress { Email = toAddress }]
+                }
+            ],
+            From = new SendGridEmailAddress { Email = fromAddress, Name = fromName },
+            Subject = subject,
+            Content =
+            [
+                new SendGridContent { Type = "text/plain", Value = plainBody },
+                new SendGridContent { Type = "text/html", Value = htmlBody }
+            ]
+        });
+
+        var response = await client.SendAsync(request, cancellationToken);
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        logger.LogError("SendGrid failed with status {StatusCode}: {Body}", (int)response.StatusCode, errorBody);
+        throw new InvalidOperationException($"SendGrid returned {(int)response.StatusCode}.");
+    }
+
+    private async Task SendViaSmtpAsync(
+        MailboxAddress recipient,
+        string fromAddress,
+        string fromName,
+        string subject,
+        string plainBody,
+        string htmlBody,
+        CancellationToken cancellationToken)
+    {
+        var smtpHost = configuration["Email:SmtpHost"];
+        var smtpPort = configuration.GetValue("Email:SmtpPort", 587);
+        var smtpUser = configuration["Email:SmtpUser"];
+        var smtpPassword = configuration["Email:SmtpPassword"];
+
+        if (string.IsNullOrWhiteSpace(smtpHost) || string.IsNullOrWhiteSpace(smtpPassword))
+        {
+            logger.LogWarning(
+                "SMTP not configured and SendGrid API key is missing. Skipping email. " +
+                "On Render free tier, use Email__SendGridApiKey instead of Gmail SMTP.");
+            return;
+        }
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(fromName, fromAddress));
+        message.To.Add(recipient);
+        message.Subject = subject;
+        message.Body = new BodyBuilder { TextBody = plainBody, HtmlBody = htmlBody }.ToMessageBody();
+
+        using var client = new SmtpClient { Timeout = 15_000 };
+
+        try
+        {
+            await client.ConnectAsync(smtpHost, smtpPort, SecureSocketOptions.StartTls, cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(smtpUser))
+            {
+                await client.AuthenticateAsync(smtpUser, smtpPassword, cancellationToken);
+            }
+
+            await client.SendAsync(message, cancellationToken);
+            await client.DisconnectAsync(true, cancellationToken);
+        }
+        catch (Exception ex) when (ex is SmtpCommandException or SmtpProtocolException or IOException or TimeoutException or OperationCanceledException)
+        {
+            logger.LogError(
+                ex,
+                "SMTP send failed. Render free tier blocks ports 25/465/587 — set Email__SendGridApiKey for production.");
+            throw;
+        }
     }
 
     private static string BuildPlainBody(Registration registration) =>
@@ -158,4 +250,43 @@ public class EmailService(IConfiguration configuration, ILogger<EmailService> lo
         </body>
         </html>
         """;
+
+    private sealed class SendGridMailRequest
+    {
+        [JsonPropertyName("personalizations")]
+        public SendGridPersonalization[] Personalizations { get; set; } = [];
+
+        [JsonPropertyName("from")]
+        public SendGridEmailAddress From { get; set; } = new();
+
+        [JsonPropertyName("subject")]
+        public string Subject { get; set; } = string.Empty;
+
+        [JsonPropertyName("content")]
+        public SendGridContent[] Content { get; set; } = [];
+    }
+
+    private sealed class SendGridPersonalization
+    {
+        [JsonPropertyName("to")]
+        public SendGridEmailAddress[] To { get; set; } = [];
+    }
+
+    private sealed class SendGridEmailAddress
+    {
+        [JsonPropertyName("email")]
+        public string Email { get; set; } = string.Empty;
+
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+    }
+
+    private sealed class SendGridContent
+    {
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = string.Empty;
+
+        [JsonPropertyName("value")]
+        public string Value { get; set; } = string.Empty;
+    }
 }
