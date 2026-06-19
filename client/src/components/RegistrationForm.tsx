@@ -31,6 +31,10 @@ export function RegistrationForm({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (submitting) {
+      return;
+    }
+
     setError(null);
     setSubmitting(true);
 
@@ -38,7 +42,7 @@ export function RegistrationForm({
       await onSubmit(form);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'TimeoutError') {
-        setError('Kërkesa zgjati shumë. Provoni përsëri — regjistrimi mund të jetë ruajtur.');
+        setError('Lidhja me serverin zgjati shumë. Provoni përsëri — regjistrimi mund të jetë ruajtur.');
       } else {
         setError(err instanceof Error ? err.message : 'Diçka shkoi keq.');
       }

@@ -34,52 +34,35 @@ var app = builder.Build();
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("CORS allowed origins: {Origins}", string.Join(", ", allowedOrigins));
 
-app.Use(async (context, next) =>
+await using (var scope = app.Services.CreateAsyncScope())
 {
-    var origin = context.Request.Headers.Origin.ToString();
-
-    if (!string.IsNullOrWhiteSpace(origin) &&
-        IsOriginAllowed(origin, allowedOrigins, app.Environment.IsProduction()))
-    {
-        context.Response.Headers["Access-Control-Allow-Origin"] = origin;
-        context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, X-Admin-Key, Authorization";
-        context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
-        context.Response.Headers["Access-Control-Max-Age"] = "86400";
-
-        if (HttpMethods.IsOptions(context.Request.Method))
-        {
-            context.Response.StatusCode = StatusCodes.Status204NoContent;
-            return;
-        }
-    }
-
-    await next();
-});
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+    logger.LogInformation("Database migrations applied.");
+}
 
 app.UseRouting();
 app.UseCors();
 app.UseMiddleware<AdminApiKeyMiddleware>();
 app.UseAuthorization();
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-app.MapControllers();
-
-app.Lifetime.ApplicationStarted.Register(() =>
+app.MapGet("/health", async (AppDbContext db, CancellationToken cancellationToken) =>
 {
-    _ = Task.Run(async () =>
+    try
     {
-        try
+        if (!await db.Database.CanConnectAsync(cancellationToken))
         {
-            await using var scope = app.Services.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.MigrateAsync();
-            logger.LogInformation("Database migrations applied.");
+            return Results.Json(new { status = "degraded", database = "unavailable" }, statusCode: StatusCodes.Status503ServiceUnavailable);
         }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Database migration failed.");
-        }
-    });
+
+        return Results.Ok(new { status = "ok" });
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Health check failed.");
+        return Results.Json(new { status = "degraded", database = "error" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
 });
+app.MapControllers();
 
 app.Run();
 
@@ -152,9 +135,9 @@ static string NormalizeOrigin(string origin) => origin.Trim().TrimEnd('/');
 
 static string ResolveConnectionString(IConfiguration configuration)
 {
-    var connectionString = configuration.GetConnectionString("DefaultConnection")
-        ?? configuration["DATABASE_URL"]
-        ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+    var connectionString = configuration["DATABASE_URL"]
+        ?? Environment.GetEnvironmentVariable("DATABASE_URL")
+        ?? configuration.GetConnectionString("DefaultConnection");
 
     if (string.IsNullOrWhiteSpace(connectionString))
     {

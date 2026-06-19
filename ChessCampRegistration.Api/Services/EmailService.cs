@@ -16,15 +16,23 @@ public class EmailService(IConfiguration configuration, ILogger<EmailService> lo
         var fromAddress = configuration["Email:FromAddress"] ?? smtpUser;
         var fromName = configuration["Email:FromName"] ?? "Kampi i Shahut";
 
-        if (string.IsNullOrWhiteSpace(smtpHost) || string.IsNullOrWhiteSpace(fromAddress))
+        if (string.IsNullOrWhiteSpace(smtpHost) ||
+            string.IsNullOrWhiteSpace(fromAddress) ||
+            string.IsNullOrWhiteSpace(smtpPassword))
         {
             logger.LogWarning("Email not configured. Skipping confirmation email for registration {Id}.", registration.Id);
             return;
         }
 
+        if (!MailboxAddress.TryParse(registration.ParentEmail, out var recipient))
+        {
+            logger.LogWarning("Invalid parent email {Email} for registration {Id}.", registration.ParentEmail, registration.Id);
+            return;
+        }
+
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(fromName, fromAddress));
-        message.To.Add(MailboxAddress.Parse(registration.ParentEmail));
+        message.To.Add(recipient);
         message.Subject = $"♟ {registration.KidFullName} është regjistruar — Kampi i Shahut!";
 
         var plainBody = BuildPlainBody(registration);

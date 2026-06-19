@@ -2,6 +2,7 @@ import type { Registration, RegistrationFormData } from '../types/registration';
 import { buildFilterQuery, type RegistrationFilters } from '../types/filters';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:5075';
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 export class ApiError extends Error {
   status: number;
@@ -13,12 +14,34 @@ export class ApiError extends Error {
   }
 }
 
+type ProblemDetails = {
+  message?: string;
+  title?: string;
+  errors?: Record<string, string[]>;
+};
+
 async function parseErrorMessage(response: Response): Promise<string> {
   const text = await response.text();
 
   try {
-    const json = JSON.parse(text) as { message?: string };
-    return json.message ?? text;
+    const json = JSON.parse(text) as ProblemDetails;
+
+    if (json.message) {
+      return json.message;
+    }
+
+    if (json.errors) {
+      const messages = Object.values(json.errors).flat();
+      if (messages.length > 0) {
+        return messages.join(' ');
+      }
+    }
+
+    if (json.title) {
+      return json.title;
+    }
+
+    return text;
   } catch {
     return text || `Kërkesa dështoi me status ${response.status}`;
   }
@@ -32,20 +55,31 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+  });
+}
+
 function toPayload(data: RegistrationFormData) {
+  if (data.kidAge === '') {
+    throw new ApiError('Mosha është e detyrueshme.', 400);
+  }
+
   return {
-    kidFullName: data.kidFullName,
-    kidAge: Number(data.kidAge),
-    kidSchool: data.kidSchool,
-    kidChessLevel: data.kidChessLevel,
-    parentName: data.parentName,
-    parentPhone: data.parentPhone,
-    parentEmail: data.parentEmail,
+    kidFullName: data.kidFullName.trim(),
+    kidAge: data.kidAge,
+    kidSchool: data.kidSchool.trim(),
+    kidChessLevel: data.kidChessLevel.trim(),
+    parentName: data.parentName.trim(),
+    parentPhone: data.parentPhone.trim(),
+    parentEmail: data.parentEmail.trim(),
   };
 }
 
 export async function validateAdminKey(adminKey: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/admin/registrations`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/admin/registrations`, {
     headers: { 'X-Admin-Key': adminKey },
   });
 
@@ -55,11 +89,10 @@ export async function validateAdminKey(adminKey: string): Promise<void> {
 }
 
 export async function submitRegistration(data: RegistrationFormData): Promise<Registration> {
-  const response = await fetch(`${API_BASE}/api/registrations`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/registrations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toPayload(data)),
-    signal: AbortSignal.timeout(30_000),
   });
 
   return handleResponse<Registration>(response);
@@ -75,7 +108,7 @@ export async function fetchRegistrations(
   },
 ): Promise<Registration[]> {
   const query = buildFilterQuery(filters);
-  const response = await fetch(`${API_BASE}/api/admin/registrations${query}`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/admin/registrations${query}`, {
     headers: { 'X-Admin-Key': adminKey },
   });
 
@@ -87,7 +120,7 @@ export async function exportRegistrationsCsv(
   filters: RegistrationFilters,
 ): Promise<void> {
   const query = buildFilterQuery(filters);
-  const response = await fetch(`${API_BASE}/api/admin/registrations/export${query}`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/admin/registrations/export${query}`, {
     headers: { 'X-Admin-Key': adminKey },
   });
 
@@ -113,7 +146,7 @@ export async function createRegistrationManual(
   adminKey: string,
   data: RegistrationFormData,
 ): Promise<Registration> {
-  const response = await fetch(`${API_BASE}/api/admin/registrations`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/admin/registrations`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -130,7 +163,7 @@ export async function updateRegistration(
   id: number,
   data: RegistrationFormData,
 ): Promise<Registration> {
-  const response = await fetch(`${API_BASE}/api/admin/registrations/${id}`, {
+  const response = await fetchWithTimeout(`${API_BASE}/api/admin/registrations/${id}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',

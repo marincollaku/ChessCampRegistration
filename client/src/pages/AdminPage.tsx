@@ -75,7 +75,11 @@ export function AdminPage() {
           return;
         }
 
-        setError(err instanceof Error ? err.message : 'Ngarkimi i regjistrimeve dështoi.');
+        if (err instanceof DOMException && err.name === 'TimeoutError') {
+          setError('Lidhja me serverin zgjati shumë. Provoni përsëri.');
+        } else {
+          setError(err instanceof Error ? err.message : 'Ngarkimi i regjistrimeve dështoi.');
+        }
         setRegistrations([]);
       } finally {
         setLoading(false);
@@ -97,10 +101,19 @@ export function AdminPage() {
         setStoredKey(savedKey);
         setAuthStatus('authenticated');
       })
-      .catch(() => {
+      .catch((err) => {
         sessionStorage.removeItem('adminKey');
         setAuthStatus('login');
-        setLoginError('Sesioni i ruajtur skadoi. Ju lutemi identifikohuni përsëri.');
+
+        if (err instanceof ApiError && err.status === 503) {
+          setLoginError('Aksesi i administratorit nuk është konfiguruar në server.');
+        } else if (err instanceof ApiError && err.status === 401) {
+          setLoginError('Sesioni i ruajtur skadoi. Ju lutemi identifikohuni përsëri.');
+        } else if (err instanceof DOMException && err.name === 'TimeoutError') {
+          setLoginError('Lidhja me serverin zgjati shumë. Provoni përsëri.');
+        } else {
+          setLoginError(err instanceof Error ? err.message : 'Verifikimi i sesionit dështoi.');
+        }
       });
   }, []);
 
@@ -123,6 +136,10 @@ export function AdminPage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setLoginError('Çelësi i administratorit është i pavlefshëm.');
+      } else if (err instanceof ApiError && err.status === 503) {
+        setLoginError('Aksesi i administratorit nuk është konfiguruar në server.');
+      } else if (err instanceof DOMException && err.name === 'TimeoutError') {
+        setLoginError('Lidhja me serverin zgjati shumë. Provoni përsëri.');
       } else {
         setLoginError(err instanceof Error ? err.message : 'Verifikimi i çelësit dështoi.');
       }
@@ -164,7 +181,11 @@ export function AdminPage() {
         return;
       }
 
-      setError(err instanceof Error ? err.message : 'Eksportimi CSV dështoi.');
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        setError('Lidhja me serverin zgjati shumë. Provoni përsëri.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Eksportimi CSV dështoi.');
+      }
     } finally {
       setExporting(false);
     }

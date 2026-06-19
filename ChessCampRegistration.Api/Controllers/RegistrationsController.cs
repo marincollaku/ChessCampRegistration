@@ -20,23 +20,17 @@ public class RegistrationsController(
         [FromBody] CreateRegistrationRequest request,
         CancellationToken cancellationToken)
     {
-        var registration = new Registration
+        if (!TryMapRegistration(request, out var registration, out var validationError))
         {
-            KidFullName = request.KidFullName.Trim(),
-            KidAge = request.KidAge,
-            KidSchool = request.KidSchool.Trim(),
-            KidChessLevel = request.KidChessLevel.Trim(),
-            ParentName = request.ParentName.Trim(),
-            ParentPhone = request.ParentPhone.Trim(),
-            ParentEmail = request.ParentEmail.Trim()
-        };
+            return BadRequest(new { message = validationError });
+        }
 
         db.Registrations.Add(registration);
         await db.SaveChangesAsync(cancellationToken);
 
         QueueConfirmationEmail(registration);
 
-        return CreatedAtAction(nameof(GetById), new { id = registration.Id }, ToResponse(registration));
+        return StatusCode(StatusCodes.Status201Created, ToResponse(registration));
     }
 
     [HttpGet("admin/registrations")]
@@ -49,10 +43,9 @@ public class RegistrationsController(
     {
         var registrations = await ApplyFilters(search, chessLevel, minAge, maxAge)
             .OrderByDescending(r => r.CreatedAt)
-            .Select(r => ToResponse(r))
             .ToListAsync(cancellationToken);
 
-        return Ok(registrations);
+        return Ok(registrations.Select(ToResponse));
     }
 
     [HttpGet("admin/registrations/export")]
@@ -69,8 +62,9 @@ public class RegistrationsController(
 
         var csv = BuildCsv(registrations);
         var fileName = $"regjistrimet-kampi-shahut-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv";
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv)).ToArray();
 
-        return File(Encoding.UTF8.GetBytes(csv), "text/csv", fileName);
+        return File(bytes, "text/csv; charset=utf-8", fileName);
     }
 
     [HttpGet("admin/registrations/{id:int}")]
@@ -90,21 +84,15 @@ public class RegistrationsController(
         [FromBody] CreateRegistrationRequest request,
         CancellationToken cancellationToken)
     {
-        var registration = new Registration
+        if (!TryMapRegistration(request, out var registration, out var validationError))
         {
-            KidFullName = request.KidFullName.Trim(),
-            KidAge = request.KidAge,
-            KidSchool = request.KidSchool.Trim(),
-            KidChessLevel = request.KidChessLevel.Trim(),
-            ParentName = request.ParentName.Trim(),
-            ParentPhone = request.ParentPhone.Trim(),
-            ParentEmail = request.ParentEmail.Trim()
-        };
+            return BadRequest(new { message = validationError });
+        }
 
         db.Registrations.Add(registration);
         await db.SaveChangesAsync(cancellationToken);
 
-        return CreatedAtAction(nameof(GetById), new { id = registration.Id }, ToResponse(registration));
+        return StatusCode(StatusCodes.Status201Created, ToResponse(registration));
     }
 
     [HttpPut("admin/registrations/{id:int}")]
@@ -119,13 +107,18 @@ public class RegistrationsController(
             return NotFound();
         }
 
-        registration.KidFullName = request.KidFullName.Trim();
-        registration.KidAge = request.KidAge;
-        registration.KidSchool = request.KidSchool.Trim();
-        registration.KidChessLevel = request.KidChessLevel.Trim();
-        registration.ParentName = request.ParentName.Trim();
-        registration.ParentPhone = request.ParentPhone.Trim();
-        registration.ParentEmail = request.ParentEmail.Trim();
+        if (!TryMapRegistration(request, out var updated, out var validationError))
+        {
+            return BadRequest(new { message = validationError });
+        }
+
+        registration.KidFullName = updated.KidFullName;
+        registration.KidAge = updated.KidAge;
+        registration.KidSchool = updated.KidSchool;
+        registration.KidChessLevel = updated.KidChessLevel;
+        registration.ParentName = updated.ParentName;
+        registration.ParentPhone = updated.ParentPhone;
+        registration.ParentEmail = updated.ParentEmail;
         registration.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken);
@@ -139,13 +132,13 @@ public class RegistrationsController(
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim();
+            var term = $"%{search.Trim()}%";
             query = query.Where(r =>
-                r.KidFullName.Contains(term) ||
-                r.KidSchool.Contains(term) ||
-                r.ParentName.Contains(term) ||
-                r.ParentEmail.Contains(term) ||
-                r.ParentPhone.Contains(term));
+                EF.Functions.ILike(r.KidFullName, term) ||
+                EF.Functions.ILike(r.KidSchool, term) ||
+                EF.Functions.ILike(r.ParentName, term) ||
+                EF.Functions.ILike(r.ParentEmail, term) ||
+                EF.Functions.ILike(r.ParentPhone, term));
         }
 
         if (!string.IsNullOrWhiteSpace(chessLevel))
@@ -164,6 +157,77 @@ public class RegistrationsController(
         }
 
         return query;
+    }
+
+    private static bool TryMapRegistration(
+        CreateRegistrationRequest request,
+        out Registration registration,
+        out string? validationError)
+    {
+        registration = null!;
+        validationError = null;
+
+        var kidFullName = request.KidFullName?.Trim();
+        var kidSchool = request.KidSchool?.Trim();
+        var kidChessLevel = request.KidChessLevel?.Trim();
+        var parentName = request.ParentName?.Trim();
+        var parentPhone = request.ParentPhone?.Trim();
+        var parentEmail = request.ParentEmail?.Trim();
+
+        if (string.IsNullOrWhiteSpace(kidFullName))
+        {
+            validationError = "Emri i fëmijës është i detyrueshëm.";
+            return false;
+        }
+
+        if (request.KidAge is < 4 or > 18)
+        {
+            validationError = "Mosha duhet të jetë midis 4 dhe 18 vjeç.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(kidSchool))
+        {
+            validationError = "Shkolla është e detyrueshme.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(kidChessLevel))
+        {
+            validationError = "Niveli i shahut është i detyrueshëm.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(parentName))
+        {
+            validationError = "Emri i prindit është i detyrueshëm.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(parentPhone))
+        {
+            validationError = "Numri i telefonit është i detyrueshëm.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(parentEmail))
+        {
+            validationError = "Email-i është i detyrueshëm.";
+            return false;
+        }
+
+        registration = new Registration
+        {
+            KidFullName = kidFullName,
+            KidAge = request.KidAge,
+            KidSchool = kidSchool,
+            KidChessLevel = kidChessLevel,
+            ParentName = parentName,
+            ParentPhone = parentPhone,
+            ParentEmail = parentEmail
+        };
+
+        return true;
     }
 
     private static string BuildCsv(IEnumerable<Registration> registrations)
@@ -191,6 +255,11 @@ public class RegistrationsController(
 
     private static string Csv(string value)
     {
+        if (value.Length > 0 && "=+-@\t\r".Contains(value[0]))
+        {
+            value = $"'{value}";
+        }
+
         var escaped = value.Replace("\"", "\"\"");
         return $"\"{escaped}\"";
     }

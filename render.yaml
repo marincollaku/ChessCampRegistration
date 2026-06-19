@@ -14,8 +14,6 @@ services:
         value: Production
       - key: DATABASE_URL
         sync: false
-      - key: ConnectionStrings__DefaultConnection
-        sync: false
       - key: Admin__ApiKey
         sync: false
       - key: Email__SmtpHost
@@ -45,4 +43,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        sync: false
+        value: https://chess-camp-api.onrender.com

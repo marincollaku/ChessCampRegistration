@@ -10,7 +10,7 @@ export function RegistrationPage() {
   async function handleSubmit(data: RegistrationFormData) {
     await submitRegistration(data);
     setSuccess(
-      `Regjistrimi u dërgua për ${data.kidFullName}. Një email konfirmimi do t'i dërgohet ${data.parentEmail}.`,
+      `Regjistrimi u dërgua me sukses për ${data.kidFullName}. Nëse email-i është konfiguruar, një konfirmim do t'i dërgohet ${data.parentEmail}.`,
     );
     setFormKey((key) => key + 1);
   }
